@@ -9,3 +9,5 @@ frontend/dist/
 frontend/.vite/
 
 .DS_Store
+
+.idea/
