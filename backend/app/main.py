@@ -14,10 +14,14 @@ DATA_FILE = Path(__file__).resolve().parents[2] / "data" / "review_items.json"
 
 ReviewAction = Literal["claim", "approve", "reject", "escalate"]
 
+CURRENT_REVIEWER = "alex"
+TERMINAL_STATUSES = {"approved", "rejected", "escalated"}
+RISK_RANK = {"high": 0, "medium": 1, "low": 2}
+TIER_RANK = {"priority": 0, "standard": 1}
+
 
 class ActionRequest(BaseModel):
     action: ReviewAction
-    reviewer: str = "alex"
 
 
 app = FastAPI(title="Reviewer Queue API")
@@ -56,10 +60,18 @@ async def list_review_items(active_only: bool = True) -> dict:
     items = deepcopy(ITEMS)
 
     if active_only:
-        items = [item for item in items if item["status"] != "approved"]
+        items = [item for item in items if item["status"] not in TERMINAL_STATUSES]
 
-    items.sort(key=lambda item: item["submitted_at"], reverse=True)
+    items.sort(key=queue_order_key)
     return {"items": items}
+
+
+def queue_order_key(item: dict) -> tuple:
+    return (
+        RISK_RANK.get(item["risk_level"], 99),
+        TIER_RANK.get(item["customer_tier"], 99),
+        item["submitted_at"],
+    )
 
 
 @app.get("/review-items/{item_id}")
@@ -73,16 +85,17 @@ async def apply_action(item_id: str, request: ActionRequest) -> dict:
     item = find_item(item_id)
 
     if request.action == "claim":
-        if item["status"] in {"approved", "rejected", "escalated"}:
-            raise HTTPException(status_code=409, detail="This item cannot be claimed")
+        if item["status"] != "unassigned":
+            raise HTTPException(status_code=409, detail="Only unassigned items can be claimed")
         item["status"] = "in_review"
-        item["assigned_reviewer"] = request.reviewer
-    elif request.action in {"approve", "reject", "escalate"}:
-        if item["status"] == "approved":
-            raise HTTPException(status_code=409, detail="This item has already been approved")
-        item["status"] = status_for_action(request.action)
+        item["assigned_reviewer"] = CURRENT_REVIEWER
     else:
-        raise HTTPException(status_code=400, detail="Unsupported action")
+        if item["status"] != "in_review":
+            raise HTTPException(
+                status_code=409,
+                detail=f"Only items being reviewed can be {request.action}d",
+            )
+        item["status"] = status_for_action(request.action)
 
     return {"item": deepcopy(item)}
 
