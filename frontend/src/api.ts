@@ -24,7 +24,7 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000
 export async function fetchReviewItems(): Promise<ReviewItem[]> {
   const response = await fetch(`${API_BASE_URL}/review-items`);
   if (!response.ok) {
-    throw new Error("Could not load review items");
+    throw new Error(await extractErrorDetail(response, "Could not load review items"));
   }
   const payload = await response.json();
   return payload.items;
@@ -44,9 +44,14 @@ export async function applyReviewAction(
   });
 
   if (!response.ok) {
-    throw new Error("Action failed");
+    throw new Error(await extractErrorDetail(response, "Action failed"));
   }
 
   const payload = await response.json();
   return payload.item;
+}
+
+async function extractErrorDetail(response: Response, fallback: string): Promise<string> {
+  const body = await response.json().catch(() => null);
+  return body?.detail ?? fallback;
 }
